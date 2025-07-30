@@ -7,6 +7,8 @@ require fyne.io/fyne/v2 v2.6.2
 require (
 	fyne.io/systray v1.11.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
+	github.com/asticode/go-astiav v0.37.0 // indirect
+	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

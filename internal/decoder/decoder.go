@@ -3,8 +3,6 @@ package decoder
 import (
 	"errors"
 	"fmt"
-	"io"
-	"log"
 
 	"github.com/asticode/go-astiav"
 )
@@ -55,160 +53,80 @@ func FindCodec(i *astiav.FormatContext, t astiav.MediaType, dst MediaDecoder) er
 	return nil
 }
 
-type AudioDecoder struct {
-	stream              *astiav.Stream
-	codecCtx            *astiav.CodecContext
-	softwareResampleCtx *astiav.SoftwareResampleContext
-	fifo                *astiav.AudioFifo
+type Decoder struct {
+	inputFormatCtx *astiav.FormatContext
 
-	decodedFrame   *astiav.Frame
-	resampledFrame *astiav.Frame
-	finalFrame     *astiav.Frame
-
-	read chan bool
-}
-
-func NewAudioDecoder() {
-	//TODO: implementation
-}
-
-func (ad *AudioDecoder) SetStream(s *astiav.Stream) {
-	ad.stream = s
-}
-
-func (ad *AudioDecoder) SetCodecContext(cc *astiav.CodecContext) {
-	ad.codecCtx = cc
-}
-
-func (ad *AudioDecoder) Decode() {
-	for {
-		if stop := func() bool {
-			if err := ad.codecCtx.ReceiveFrame(ad.decodedFrame); err != nil {
-				if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
-					return true
-				}
-				log.Fatal(fmt.Errorf("main: receiving frame failed: %w", err))
-			}
-
-			defer ad.decodedFrame.Unref()
-
-			if err := ad.softwareResampleCtx.ConvertFrame(ad.decodedFrame, ad.resampledFrame); err != nil {
-				log.Fatal(fmt.Errorf("main: resampling decoded frame failed: %w", err))
-			}
-
-			if nbSamples := ad.resampledFrame.NbSamples(); nbSamples > 0 {
-				// Add resampled frame to audio fifo
-				// if err := addResampledFrameToAudioFIFO(false); err != nil {
-				// 	log.Fatal(fmt.Errorf("main: adding resampled frame to audio fifo failed: %w", err))
-				// }
-
-				// Flush software resample context
-				// if err := flushSoftwareResampleContext(false); err != nil {
-				// 	log.Fatal(fmt.Errorf("main: flushing software resample context failed: %w", err))
-				// }
-			}
-			return false
-		}(); stop {
-			break
-		}
-	}
-}
-
-func (ad *AudioDecoder) flushSoftwareResampleContext(finalFlush bool) error {
-	// Loop
-	for {
-		// We're making the final flush or there's enough data to flush the resampler
-		if finalFlush || ad.softwareResampleCtx.Delay(int64(ad.resampledFrame.SampleRate())) >= int64(ad.resampledFrame.NbSamples()) {
-			// Flush resampler
-			if err := ad.softwareResampleCtx.ConvertFrame(nil, ad.resampledFrame); err != nil {
-				log.Fatal(fmt.Errorf("main: flushing resampler failed: %w", err))
-			}
-
-			// Log
-			if ad.resampledFrame.NbSamples() > 0 {
-				log.Printf("new resampled frame: nb samples: %d", ad.resampledFrame.NbSamples())
-			}
-
-			// Add resampled frame to audio fifo
-			if err := ad.addResampledFrameToAudioFIFO(finalFlush); err != nil {
-				log.Fatal(fmt.Errorf("main: adding resampled frame to audio fifo failed: %w", err))
-			}
-
-			// Final flush is done
-			if finalFlush && ad.resampledFrame.NbSamples() == 0 {
-				break
-			}
-			continue
-		}
-		break
-	}
-	return nil
-}
-
-func (ad *AudioDecoder) addResampledFrameToAudioFIFO(flush bool) error {
-	if ad.resampledFrame.NbSamples() > 0 {
-		if _, err := ad.fifo.Write(ad.resampledFrame); err != nil {
-			return fmt.Errorf("main: writing failed: %w", err)
-		}
-	}
-
-	// Loop
-	for {
-		// We're flushing or there's enough data to read
-		if (flush && ad.fifo.Size() > 0) || (!flush && ad.fifo.Size() >= ad.finalFrame.NbSamples()) {
-			// Read
-			n, err := ad.fifo.Read(ad.finalFrame)
-			if err != nil {
-				return fmt.Errorf("main: reading failed: %w", err)
-			}
-			ad.finalFrame.SetNbSamples(n)
-
-			// Log
-			log.Printf("new final frame: nb samples: %d", ad.finalFrame.NbSamples())
-			continue
-		}
-		break
-	}
-	return nil
-}
-
-func (ad *AudioDecoder) Free() {
-	ad.codecCtx.Free()
-	ad.fifo.Free()
-
-	ad.decodedFrame.Free()
-	ad.resampledFrame.Free()
-}
-
-type VideoDecoder struct {
-	cr chan bool
-}
-
-func NewVideoDecoder() {
-	//TODO: implementation
-}
-
-type Synchronizer struct {
+	// vd *VideoDecoder
 	ad *AudioDecoder
-	vd *VideoDecoder
-
-	vw io.Writer
-	aw io.Writer
 }
 
-func NewSynchronizer(vw io.Writer, aw io.Writer) *Synchronizer {
-	return &Synchronizer{
-		vw: vw,
-		aw: aw,
+func NewDecoder(ad *AudioDecoder) (*Decoder, error) {
+	d := &Decoder{
+		ad: ad,
 	}
+
+	d.inputFormatCtx = astiav.AllocFormatContext()
+	if d.inputFormatCtx == nil {
+		return nil, errors.New("decoder: input format context is nil")
+	}
+
+	return d, nil
 }
 
-func (s *Synchronizer) Run(callback func()) {
+func (d *Decoder) Open(input string) error {
+	if err := d.inputFormatCtx.OpenInput(input, nil, nil); err != nil {
+		return fmt.Errorf("decoder: opening input failed: %w", err)
+	}
+	// defer d.inputFormatCtx.CloseInput()
+
+	if err := d.inputFormatCtx.FindStreamInfo(nil); err != nil {
+		return fmt.Errorf("decoder: finding stream info failed: %w", err)
+	}
+
+	if err := FindCodec(d.inputFormatCtx, astiav.MediaTypeAudio, d.ad); err != nil {
+		return fmt.Errorf("decoder: finding audio codec failed: %w", err)
+	}
+
+	return nil
+}
+
+func (d *Decoder) Decode() error {
+	pkt := astiav.AllocPacket()
+	defer pkt.Free()
+
 	for {
-		_, ok := <-s.ad.read
-		if !ok {
+		stop, err := d.decode(pkt)
+		if err != nil {
+			return err
+		}
+
+		if stop {
 			break
 		}
-		// Do something
 	}
+
+	return nil
+}
+
+func (d *Decoder) decode(pkt *astiav.Packet) (bool, error) {
+	if err := d.inputFormatCtx.ReadFrame(pkt); err != nil {
+		if errors.Is(err, astiav.ErrEof) {
+			return true, nil
+		}
+		return true, fmt.Errorf("decode: reading frame failed: %w", err)
+	}
+
+	defer pkt.Unref()
+
+	if pkt.StreamIndex() == d.ad.stream.Index() {
+		if err := d.ad.Decode(pkt); err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
+func (d *Decoder) Free() {
+	d.inputFormatCtx.Free()
 }

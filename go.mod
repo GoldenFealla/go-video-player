@@ -2,14 +2,19 @@ module github.com/GoldenFealla/VideoPlayerGo
 
 go 1.24.5
 
-require fyne.io/fyne/v2 v2.6.2
+require (
+	fyne.io/fyne/v2 v2.6.2
+	github.com/asticode/go-astiav v0.37.0
+	github.com/ebitengine/oto/v3 v3.3.3
+	golang.org/x/sync v0.11.0
+)
 
 require (
 	fyne.io/systray v1.11.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
-	github.com/asticode/go-astiav v0.37.0 // indirect
 	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/ebitengine/purego v0.8.0 // indirect
 	github.com/fredbi/uri v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect

@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	Input string = "./The Lost Beyond.mp4"
+	Input string = "./test.mp4"
 )
 
 var (
@@ -59,27 +59,20 @@ func init() {
 
 	Synchronizer = decoder.NewSynchronizer(AudioDecoder, VideoWriter, AudioWriter)
 
-	//Audio Player
 	otoCtx, readyChan, err := oto.NewContext(OtoOption)
 	if err != nil {
 		panic("oto.NewContext failed: " + err.Error())
 	}
-	// It might take a bit for the hardware audio devices to be ready, so we wait on the channel.
 	<-readyChan
-	log.Println("audio player is ready")
 	AudioPlayer = otoCtx.NewPlayer(AudioReader)
-	log.Println("audio player volume 0.2")
-	AudioPlayer.SetVolume(0.2)
+	AudioPlayer.SetVolume(1)
 
-	log.Println("open file")
 	if err := Decoder.Open(Input); err != nil {
 		log.Fatalln(err)
 	}
 }
 
 func main() {
-	log.Println("main")
-
 	defer func() {
 		AudioDecoder.Free()
 		Decoder.Free()
@@ -97,8 +90,8 @@ func main() {
 		text.TextStyle = fyne.TextStyle{Italic: true}
 		w.SetContent(text)
 	})
+
 	go func() {
-		log.Println("Start")
 		errsgroup := new(errgroup.Group)
 
 		errsgroup.Go(Decoder.Decode)
@@ -109,7 +102,6 @@ func main() {
 	}()
 
 	AudioPlayer.Play()
-	log.Println("audio player started")
 
 	w.ShowAndRun()
 }

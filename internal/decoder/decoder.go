@@ -10,6 +10,7 @@ import (
 type MediaDecoder interface {
 	SetStream(s *astiav.Stream)
 	SetCodecContext(cc *astiav.CodecContext)
+	UpdateFilter() error
 }
 
 func FindCodec(i *astiav.FormatContext, t astiav.MediaType, dst MediaDecoder) error {
@@ -49,6 +50,10 @@ func FindCodec(i *astiav.FormatContext, t astiav.MediaType, dst MediaDecoder) er
 
 	dst.SetStream(s)
 	dst.SetCodecContext(cc)
+
+	if err := dst.UpdateFilter(); err != nil {
+		return err
+	}
 
 	return nil
 }

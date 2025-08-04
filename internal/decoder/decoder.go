@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/asticode/go-astiav"
+	"github.com/asticode/go-astikit"
 )
 
 type MediaDecoder interface {
@@ -59,16 +60,21 @@ func FindCodec(i *astiav.FormatContext, t astiav.MediaType, dst MediaDecoder) er
 }
 
 type Decoder struct {
+	closer *astikit.Closer
+
 	inputFormatCtx *astiav.FormatContext
 
-	// vd *VideoDecoder
+	vd *VideoDecoder
 	ad *AudioDecoder
 }
 
-func NewDecoder(ad *AudioDecoder) (*Decoder, error) {
+func NewDecoder(vd *VideoDecoder, ad *AudioDecoder) (*Decoder, error) {
 	d := &Decoder{
+		vd: vd,
 		ad: ad,
 	}
+
+	d.closer = astikit.NewCloser()
 
 	d.inputFormatCtx = astiav.AllocFormatContext()
 	if d.inputFormatCtx == nil {
@@ -82,10 +88,14 @@ func (d *Decoder) Open(input string) error {
 	if err := d.inputFormatCtx.OpenInput(input, nil, nil); err != nil {
 		return fmt.Errorf("decoder: opening input failed: %w", err)
 	}
-	// defer d.inputFormatCtx.CloseInput()
+	d.closer.Add(d.inputFormatCtx.CloseInput)
 
 	if err := d.inputFormatCtx.FindStreamInfo(nil); err != nil {
 		return fmt.Errorf("decoder: finding stream info failed: %w", err)
+	}
+
+	if err := FindCodec(d.inputFormatCtx, astiav.MediaTypeVideo, d.vd); err != nil {
+		return fmt.Errorf("decoder: finding audio codec failed: %w", err)
 	}
 
 	if err := FindCodec(d.inputFormatCtx, astiav.MediaTypeAudio, d.ad); err != nil {
@@ -127,11 +137,16 @@ func (d *Decoder) decode(pkt *astiav.Packet) (bool, error) {
 		if err := d.ad.Decode(pkt); err != nil {
 			return false, err
 		}
+	} else if pkt.StreamIndex() == d.vd.stream.Index() {
+		if err := d.vd.Decode(pkt); err != nil {
+			return false, err
+		}
 	}
 
 	return false, nil
 }
 
 func (d *Decoder) Free() {
+	d.closer.Close()
 	d.inputFormatCtx.Free()
 }

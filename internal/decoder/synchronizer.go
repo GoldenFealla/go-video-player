@@ -1,33 +1,31 @@
 package decoder
 
 import (
+	"image"
 	"io"
-
-	"fyne.io/fyne/v2"
 )
 
 type Synchronizer struct {
+	vd *VideoDecoder
 	ad *AudioDecoder
-	// vd *VideoDecoder
 
-	vw io.Writer
 	aw io.Writer
 
 	cur float64
 }
 
-func NewSynchronizer(ad *AudioDecoder, vw io.Writer, aw io.Writer) *Synchronizer {
+func NewSynchronizer(vd *VideoDecoder, ad *AudioDecoder, vw io.Writer, aw io.Writer) *Synchronizer {
 	return &Synchronizer{
+		vd: vd,
 		ad: ad,
 
-		vw: vw,
 		aw: aw,
 
 		cur: 0,
 	}
 }
 
-func (s *Synchronizer) Run(callback func(cur float64)) {
+func (s *Synchronizer) Run(update func(cur float64, i image.Image)) {
 	for {
 		data, ok := <-s.ad.written
 		if !ok {
@@ -38,8 +36,11 @@ func (s *Synchronizer) Run(callback func(cur float64)) {
 
 		s.aw.Write(data.b)
 
-		fyne.Do(func() {
-			callback(s.cur)
-		})
+		for {
+			fData := s.vd.queue.GetData()
+			if fData == nil {
+				break
+			}
+		}
 	}
 }

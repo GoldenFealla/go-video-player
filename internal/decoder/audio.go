@@ -149,11 +149,11 @@ func (ad *AudioDecoder) UpdateFilter() error {
 	buffersrcContextParameters.SetTimeBase(ad.stream.TimeBase())
 
 	if err := ad.buffersrcCtx.SetParameters(buffersrcContextParameters); err != nil {
-		err = fmt.Errorf("update audio filter: setting buffersrc context parameters failed: %w", err)
+		return fmt.Errorf("update audio filter: setting buffersrc context parameters failed: %w", err)
 	}
 
 	if err := ad.buffersrcCtx.Initialize(nil); err != nil {
-		err = fmt.Errorf("update audio filter: initializing buffersrc context failed: %w", err)
+		return fmt.Errorf("update audio filter: initializing buffersrc context failed: %w", err)
 	}
 
 	ad.filterOutputs.SetName("in")

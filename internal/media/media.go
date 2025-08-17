@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/GoldenFealla/VideoPlayerGo/internal/media/synchronizer"
 	"github.com/asticode/go-astiav"
 	"github.com/asticode/go-astikit"
 )
@@ -59,12 +58,12 @@ func Open(input string) error {
 
 	InputFormatContext.Free()
 	if err := InputFormatContext.OpenInput(input, nil, nil); err != nil {
-		return fmt.Errorf("decoder: opening input failed: %w", err)
+		return fmt.Errorf("format context: opening input failed: %w", err)
 	}
 	closer.Add(InputFormatContext.CloseInput)
 
 	if err := InputFormatContext.FindStreamInfo(nil); err != nil {
-		return fmt.Errorf("decoder: finding stream info failed: %w", err)
+		return fmt.Errorf("format context: finding stream info failed: %w", err)
 	}
 
 	return nil
@@ -97,12 +96,12 @@ func read(pkt *astiav.Packet) (bool, error) {
 		if errors.Is(err, astiav.ErrEof) {
 			return true, nil
 		}
-		return false, fmt.Errorf("decode: reading frame failed: %w", err)
+		return false, fmt.Errorf("decoding: reading packet failed: %w", err)
 	}
 
 	defer pkt.Unref()
 
-	synchronizer.SendToDecoder(pkt.Clone())
+	SendToDecoder(pkt.Clone())
 
 	return false, nil
 }

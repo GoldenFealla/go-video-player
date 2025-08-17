@@ -1,33 +1,27 @@
 package main
 
 import (
-	"image"
 	"log"
 	"os"
 
 	"gioui.org/app"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
+	"github.com/GoldenFealla/VideoPlayerGo/internal/decoder"
 	"github.com/GoldenFealla/VideoPlayerGo/internal/media"
-	"github.com/GoldenFealla/VideoPlayerGo/internal/media/audiodecoder"
-	"github.com/GoldenFealla/VideoPlayerGo/internal/media/synchronizer"
-	"github.com/GoldenFealla/VideoPlayerGo/internal/media/videodecoder"
+	"github.com/GoldenFealla/VideoPlayerGo/internal/widget"
 	"github.com/asticode/go-astiav"
 	"github.com/ebitengine/oto/v3"
-)
-
-type C = layout.Context
-type D = layout.Dimensions
-
-var (
-	Input string = "./The Lost Beyond.mp4"
 )
 
 var (
 	WIDTH  = unit.Dp(800)
 	HEIGHT = unit.Dp(450)
+)
+
+var (
+	Input string = "./test.mp4"
 )
 
 var (
@@ -52,7 +46,7 @@ func init() {
 		log.Fatalln(err)
 	}
 
-	err = videodecoder.Init(vs, vcc, synchronizer.RecieveChan)
+	err = decoder.InitVideo(vs, vcc, media.RecieveChan)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -61,11 +55,11 @@ func init() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	err = audiodecoder.Init(as, acc, synchronizer.SyncAudioWriter)
+	err = decoder.InitAudio(as, acc, media.SyncAudioWriter)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	err = audiodecoder.UpdateFilter()
+	err = decoder.UpdateAudioFilter()
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -75,23 +69,20 @@ func init() {
 		panic("oto.NewContext failed: " + err.Error())
 	}
 	<-readyChan
-	AudioPlayer = otoCtx.NewPlayer(synchronizer.SyncAudioReader)
-	AudioPlayer.SetVolume(0)
+	AudioPlayer = otoCtx.NewPlayer(media.SyncAudioReader)
+	AudioPlayer.SetVolume(0.5)
 }
 
 func main() {
 	defer func() {
 		media.Free()
-
-		videodecoder.Free()
-		audiodecoder.Free()
-
+		decoder.Free()
 		AudioPlayer.Close()
 	}()
 
 	go media.ReadPacket()
-	go synchronizer.RunVideoSync()
-	go synchronizer.RunAudioSync()
+	go media.RunVideoReceiver()
+	go media.RunVideoSync()
 
 	go func() {
 		w := new(app.Window)
@@ -123,33 +114,13 @@ func draw(window *app.Window) error {
 
 			layout.Flex{}.Layout(
 				gtx,
-				layout.Rigid(VideoFrame),
+				layout.Flexed(1, widget.VideoFrame),
+				//layout.Flexed(1, widget.Controller),
 			)
 
 			typ.Frame(gtx.Ops)
 		case app.DestroyEvent:
 			return typ.Err
 		}
-	}
-}
-
-func VideoFrame(gtx C) D {
-	gtx.Source.Execute(op.InvalidateCmd{})
-
-	img, ok := <-synchronizer.OutputChan
-	if !ok {
-		return layout.Dimensions{
-			Size: image.Pt(0, 0),
-		}
-	}
-
-	imageOp := paint.NewImageOp(img)
-	imageOp.Filter = paint.FilterNearest
-	imageOp.Add(gtx.Ops)
-
-	paint.PaintOp{}.Add(gtx.Ops)
-
-	return layout.Dimensions{
-		Size: image.Black.Bounds().Size(),
 	}
 }

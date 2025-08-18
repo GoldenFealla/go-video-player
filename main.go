@@ -1,16 +1,15 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 
 	"gioui.org/app"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
 	"github.com/GoldenFealla/VideoPlayerGo/internal/decoder"
 	"github.com/GoldenFealla/VideoPlayerGo/internal/media"
-	"github.com/GoldenFealla/VideoPlayerGo/internal/widget"
 	"github.com/asticode/go-astiav"
 	"github.com/ebitengine/oto/v3"
 )
@@ -25,6 +24,13 @@ var (
 )
 
 var (
+	audioStream  *decoder.AudioStream
+	videoStream  *decoder.VideoStream
+	synchronizer *media.Media
+)
+
+// Oto
+var (
 	OtoOption = &oto.NewContextOptions{
 		SampleRate:   44100,
 		ChannelCount: 2,
@@ -35,33 +41,19 @@ var (
 
 func init() {
 	var err error
+	ar, _ := io.Pipe()
 
-	err = media.Open(Input)
-	if err != nil {
-		log.Fatalln(err)
-	}
+	videoStream = decoder.NewVideoStream()
+	audioStream = decoder.NewAudioStream(
+		decoder.WithAudioFormat(astiav.SampleFormatFlt),
+		decoder.WithSampleRate(44100),
+		decoder.WithChannelLayout(astiav.ChannelLayoutStereo),
+		decoder.WithNBSamples(1024),
+	)
 
-	vs, vcc, err := media.FindCodec(media.InputFormatContext, astiav.MediaTypeVideo)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	err = decoder.InitVideo(vs, vcc, media.RecieveChan)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	as, acc, err := media.FindCodec(media.InputFormatContext, astiav.MediaTypeAudio)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	err = decoder.InitAudio(as, acc, media.SyncAudioWriter)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	err = decoder.UpdateAudioFilter()
-	if err != nil {
-		log.Fatalln(err)
+	synchronizer = media.NewMedia(videoStream, audioStream)
+	if err := synchronizer.Load(Input); err != nil {
+		log.Fatal(err)
 	}
 
 	otoCtx, readyChan, err := oto.NewContext(OtoOption)
@@ -69,20 +61,18 @@ func init() {
 		panic("oto.NewContext failed: " + err.Error())
 	}
 	<-readyChan
-	AudioPlayer = otoCtx.NewPlayer(media.SyncAudioReader)
+	AudioPlayer = otoCtx.NewPlayer(ar)
 	AudioPlayer.SetVolume(0.5)
 }
 
 func main() {
 	defer func() {
-		media.Free()
-		decoder.Free()
+		videoStream.Close()
+		audioStream.Close()
+		synchronizer.Close()
+
 		AudioPlayer.Close()
 	}()
-
-	go media.ReadPacket()
-	go media.RunVideoReceiver()
-	go media.RunVideoSync()
 
 	go func() {
 		w := new(app.Window)
@@ -112,11 +102,10 @@ func draw(window *app.Window) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, typ)
 
-			layout.Flex{}.Layout(
-				gtx,
-				layout.Flexed(1, widget.VideoFrame),
-				//layout.Flexed(1, widget.Controller),
-			)
+			// layout.Flex{}.Layout(
+			// 	gtx,
+			// 	layout.Flexed(1, widget.VideoFrame),
+			// )
 
 			typ.Frame(gtx.Ops)
 		case app.DestroyEvent:

@@ -3,98 +3,113 @@ package decoder
 import (
 	"errors"
 	"fmt"
-	"image"
 
 	"github.com/asticode/go-astiav"
+	"github.com/asticode/go-astikit"
 )
 
-type VideoData struct {
-	Img  image.Image
-	Time float64
+type VideoStream struct {
+	st *astiav.Stream
+	cc *astiav.CodecContext
+
+	df *astiav.Frame
+
+	closer *astikit.Closer
+
+	outputCallback func(*astiav.Frame)
 }
 
-var (
-	videoStream   *astiav.Stream
-	videoCodecCtx *astiav.CodecContext
+func NewVideoStream() *VideoStream {
+	vst := &VideoStream{
+		closer: astikit.NewCloser(),
+	}
 
-	videoDecoded *astiav.Frame
+	vst.df = astiav.AllocFrame()
+	vst.closer.Add(vst.df.Free)
 
-	outputChan chan VideoData
-)
+	return vst
+}
 
-func InitVideo(s *astiav.Stream, cc *astiav.CodecContext, dst chan VideoData) error {
-	videoStream = s
-	videoCodecCtx = cc
-	outputChan = dst
+func (vst *VideoStream) Close() {
+	vst.closer.Close()
+}
 
-	videoDecoded = astiav.AllocFrame()
-	closer.Add(videoDecoded.Free)
+func (vst *VideoStream) Index() int {
+	return vst.st.Index()
+}
+
+func (vst *VideoStream) SetOutoutCallback(callback func(*astiav.Frame)) {
+	vst.outputCallback = callback
+}
+
+func (vst *VideoStream) LoadInputContext(i *astiav.FormatContext) error {
+	if i == nil {
+		return ErrInputContextNil
+	}
+
+	for _, is := range i.Streams() {
+		if is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
+			continue
+		}
+
+		vst.st = is
+
+		codec := astiav.FindDecoder(is.CodecParameters().CodecID())
+		if codec == nil {
+			return errors.New("finding video codec: codec is nil")
+		}
+
+		if vst.cc = astiav.AllocCodecContext(codec); vst.cc == nil {
+			return errors.New("finding video codec: codec context is nil")
+		}
+		vst.closer.Add(vst.cc.Free)
+
+		if err := is.CodecParameters().ToCodecContext(vst.cc); err != nil {
+			return fmt.Errorf("finding video codec: updating codec context failed: %w", err)
+		}
+
+		if err := vst.cc.Open(codec, nil); err != nil {
+			return fmt.Errorf("finding video codec: opening codec context failed: %w", err)
+		}
+
+		break
+	}
+
+	if vst.st == nil {
+		return ErrNoVideo
+	}
 
 	return nil
 }
 
-func UpdateVideoFilter() error {
-	return nil
-}
-
-func DecodeVideo(pkt *astiav.Packet) error {
-	if err := videoCodecCtx.SendPacket(pkt); err != nil {
+func (vst *VideoStream) Decode(pkt *astiav.Packet) error {
+	if err := vst.cc.SendPacket(pkt); err != nil {
 		return fmt.Errorf("video decode: sending packet to audio decoder failed: %w", err)
 	}
 
 	for {
-		stop, err := decode()
+		stop, err := vst.decode()
 		if err != nil {
 			return err
 		}
 
 		if stop {
-			break
+			return nil
 		}
 	}
-
-	return nil
 }
 
-func decode() (bool, error) {
-	if err := videoCodecCtx.ReceiveFrame(videoDecoded); err != nil {
+func (vst *VideoStream) decode() (bool, error) {
+	if err := vst.cc.ReceiveFrame(vst.df); err != nil {
 		if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
 			return true, nil
 		}
 		return true, fmt.Errorf("video decoding: receiving frame failed: %w", err)
 	}
 
-	defer videoDecoded.Unref()
+	defer vst.df.Unref()
 
-	i, err := videoDecoded.Data().GuessImageFormat()
-	if err != nil {
-		return false, err
-	}
-
-	err = videoDecoded.Data().ToImage(i)
-	if err != nil {
-		return false, err
-	}
-
-	outputChan <- VideoData{
-		Img:  i,
-		Time: float64(videoDecoded.Pts()) * videoStream.TimeBase().Float64(),
-	}
-	// select {
-	// case outputChan <- VideoData{
-	// 	img: i,
-	// 	t:   float64(videoDecoded.Pts()) * videoStream.TimeBase().Float64(),
-	// }:
-	// default:
-	// }
+	vst.outputCallback(vst.df.Clone())
 
 	return false, nil
-}
-
-func VideoIndex() int {
-	return videoStream.Index()
-}
-
-func VideoTimeBase() float64 {
-	return videoStream.TimeBase().Float64()
 }

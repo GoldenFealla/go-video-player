@@ -1,23 +1,10 @@
 package decoder
 
-import (
-	"github.com/asticode/go-astiav"
-	"github.com/asticode/go-astikit"
-)
+import "errors"
 
-// UTILITY
 var (
-	closer *astikit.Closer = astikit.NewCloser()
-)
+	ErrInputContextNil = errors.New("input context is nil")
 
-// AUDIO
-var (
-	CHANNEL_LAYOUT = astiav.ChannelLayoutStereo
-	FORMAT_TYPE    = astiav.SampleFormatFlt
-	SAMPLE_RATE    = 44100
-	NB_SAMPLES     = 4096
+	ErrNoVideo = errors.New("no video stream found")
+	ErrNoAudio = errors.New("no audio stream found")
 )
-
-func Free() {
-	closer.Close()
-}

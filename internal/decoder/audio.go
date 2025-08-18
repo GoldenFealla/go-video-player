@@ -3,216 +3,205 @@ package decoder
 import (
 	"errors"
 	"fmt"
-	"io"
+	"log"
 
 	"github.com/asticode/go-astiav"
 	"github.com/asticode/go-astikit"
 )
 
 var (
-	audioStream       *astiav.Stream
-	audioCodecCtx     *astiav.CodecContext
-	audioResamplerCtx *astiav.SoftwareResampleContext
-
-	audioFifo *astiav.AudioFifo
-
-	audioDecoded   *astiav.Frame
-	audioResampled *astiav.Frame
-	audioFiltered  *astiav.Frame
-	audioCompleted *astiav.Frame
-
-	audioFilterGraph   *astiav.FilterGraph
-	audioFilterInputs  *astiav.FilterInOut
-	audioFilterOutputs *astiav.FilterInOut
-
-	audioBuffersinkCtx *astiav.BuffersinkFilterContext
-	audioBuffersrcCtx  *astiav.BuffersrcFilterContext
-
-	aw  io.Writer
-	Cur float64
+	DEFAULT_SAMPLE_RATE    = 44100
+	DEFAULT_CHANNEL_LAYOUT = astiav.ChannelLayoutStereo
+	DEFAULT_AUDIO_FORMAT   = astiav.SampleFormatFlt
+	DEFAULT_NB_SAMPLES     = 1024
 )
 
-func InitAudio(s *astiav.Stream, cc *astiav.CodecContext, dst io.Writer) error {
-	var err error
+type AudioStream struct {
+	st  *astiav.Stream
+	cc  *astiav.CodecContext
+	src *astiav.SoftwareResampleContext
 
-	audioStream = s
-	audioCodecCtx = cc
-	aw = dst
+	df *astiav.Frame
+	rf *astiav.Frame
 
-	closer = astikit.NewCloser()
+	closer *astikit.Closer
 
-	audioDecoded = astiav.AllocFrame()
-	closer.Add(audioDecoded.Free)
+	outputCallback func(*astiav.Frame)
+}
 
-	audioResampled = astiav.AllocFrame()
-	closer.Add(audioResampled.Free)
+type ASConfig struct {
+	sampleRate    int
+	channelLayout astiav.ChannelLayout
+	audioFormat   astiav.SampleFormat
+	nbSamples     int
+}
 
-	audioResampled.SetChannelLayout(CHANNEL_LAYOUT)
-	audioResampled.SetSampleFormat(FORMAT_TYPE)
-	audioResampled.SetSampleRate(SAMPLE_RATE)
-	audioResampled.SetNbSamples(NB_SAMPLES)
+type ASOption func(*ASConfig)
 
-	audioFiltered = astiav.AllocFrame()
-	closer.Add(audioFiltered.Free)
-
-	audioFiltered.SetChannelLayout(audioResampled.ChannelLayout())
-	audioFiltered.SetSampleFormat(audioResampled.SampleFormat())
-	audioFiltered.SetSampleRate(audioResampled.SampleRate())
-	audioFiltered.SetNbSamples(audioResampled.NbSamples())
-
-	audioCompleted = astiav.AllocFrame()
-	closer.Add(audioCompleted.Free)
-	audioCompleted.SetChannelLayout(audioFiltered.ChannelLayout())
-	audioCompleted.SetNbSamples(audioFiltered.NbSamples())
-	audioCompleted.SetSampleFormat(audioFiltered.SampleFormat())
-	audioCompleted.SetSampleRate(audioFiltered.SampleRate())
-	if err := audioCompleted.AllocBuffer(0); err != nil {
-		return fmt.Errorf("create audio decoder: allocating final frame buffer failed: %w", err)
+func WithSampleRate(s int) ASOption {
+	return func(a *ASConfig) {
+		a.sampleRate = s
 	}
-	audioFifo = astiav.AllocAudioFifo(
-		audioCompleted.SampleFormat(),
-		audioCompleted.ChannelLayout().Channels(),
-		audioCompleted.NbSamples(),
-	)
-	closer.Add(audioFifo.Free)
+}
 
-	audioResamplerCtx = astiav.AllocSoftwareResampleContext()
-	closer.Add(audioResamplerCtx.Free)
-
-	if audioFilterGraph = astiav.AllocFilterGraph(); audioFilterGraph == nil {
-		return errors.New("create audio decoder: graph is nil")
+func WithChannelLayout(cl astiav.ChannelLayout) ASOption {
+	return func(a *ASConfig) {
+		a.channelLayout = cl
 	}
-	closer.Add(audioFilterGraph.Free)
+}
 
-	// Filter
-	buffersrc := astiav.FindFilterByName("abuffer")
-	if buffersrc == nil {
-		return errors.New("create audio decoder: buffersrc is nil")
+func WithAudioFormat(sf astiav.SampleFormat) ASOption {
+	return func(a *ASConfig) {
+		a.audioFormat = sf
+	}
+}
+
+func WithNBSamples(nbb int) ASOption {
+	return func(a *ASConfig) {
+		a.nbSamples = nbb
+	}
+}
+
+func NewAudioStream(opts ...ASOption) *AudioStream {
+	c := ASConfig{
+		sampleRate:    DEFAULT_SAMPLE_RATE,
+		channelLayout: DEFAULT_CHANNEL_LAYOUT,
+		audioFormat:   DEFAULT_AUDIO_FORMAT,
+		nbSamples:     DEFAULT_NB_SAMPLES,
 	}
 
-	buffersink := astiav.FindFilterByName("abuffersink")
-	if buffersink == nil {
-		return errors.New("create audio decoder: buffersink is nil")
+	ast := &AudioStream{
+		closer: astikit.NewCloser(),
 	}
 
-	if audioBuffersrcCtx, err = audioFilterGraph.NewBuffersrcFilterContext(buffersrc, "in"); err != nil {
-		return fmt.Errorf("create audio decoder: creating buffersrc context failed: %w", err)
+	for _, opt := range opts {
+		opt(&c)
 	}
 
-	if audioBuffersinkCtx, err = audioFilterGraph.NewBuffersinkFilterContext(buffersink, "in"); err != nil {
-		return fmt.Errorf("create audio decoder: creating buffersink context failed: %w", err)
+	ast.df = astiav.AllocFrame()
+	ast.closer.Add(ast.df.Free)
+
+	ast.rf = astiav.AllocFrame()
+	ast.closer.Add(ast.rf.Free)
+
+	ast.rf.SetSampleRate(c.sampleRate)
+	ast.rf.SetChannelLayout(c.channelLayout)
+	ast.rf.SetSampleFormat(c.audioFormat)
+	ast.rf.SetNbSamples(c.nbSamples)
+	if err := ast.rf.AllocBuffer(0); err != nil {
+		log.Fatal(fmt.Errorf("main: allocating buffer failed: %w", err))
 	}
 
-	audioFilterOutputs = astiav.AllocFilterInOut()
-	if audioFilterOutputs == nil {
-		return errors.New("create audio decoder: outputs is nil")
-	}
-	closer.Add(audioFilterOutputs.Free)
+	ast.src = astiav.AllocSoftwareResampleContext()
+	ast.closer.Add(ast.src.Free)
 
-	audioFilterInputs = astiav.AllocFilterInOut()
-	if audioFilterInputs == nil {
-		return errors.New("create audio decoder: inputs is nil")
+	return ast
+}
+
+func (ast *AudioStream) Close() {
+	ast.closer.Close()
+}
+
+func (ast *AudioStream) Index() int {
+	return ast.st.Index()
+}
+
+func (ast *AudioStream) SetOutoutCallback(callback func(*astiav.Frame)) {
+	ast.outputCallback = callback
+}
+
+func (ast *AudioStream) LoadInputContext(i *astiav.FormatContext) error {
+	if i == nil {
+		return ErrInputContextNil
 	}
-	closer.Add(audioFilterInputs.Free)
+
+	for _, is := range i.Streams() {
+		if is.CodecParameters().MediaType() != astiav.MediaTypeAudio {
+			continue
+		}
+
+		ast.st = is
+
+		codec := astiav.FindDecoder(is.CodecParameters().CodecID())
+		if codec == nil {
+			return errors.New("finding audio codec: codec is nil")
+		}
+
+		if ast.cc = astiav.AllocCodecContext(codec); ast.cc == nil {
+			return errors.New("finding audio codec: codec context is nil")
+		}
+		ast.closer.Add(ast.cc.Free)
+
+		if err := is.CodecParameters().ToCodecContext(ast.cc); err != nil {
+			return fmt.Errorf("finding audio codec: updating codec context failed: %w", err)
+		}
+
+		if err := ast.cc.Open(codec, nil); err != nil {
+			return fmt.Errorf("finding audio codec: opening codec context failed: %w", err)
+		}
+
+		break
+	}
+
+	if ast.st == nil {
+		return ErrNoAudio
+	}
 
 	return nil
 }
 
-func UpdateAudioFilter() error {
-	buffersrcContextParameters := astiav.AllocBuffersrcFilterContextParameters()
-	defer buffersrcContextParameters.Free()
-	buffersrcContextParameters.SetSampleFormat(audioResampled.SampleFormat())
-	buffersrcContextParameters.SetChannelLayout(audioResampled.ChannelLayout())
-	buffersrcContextParameters.SetSampleRate(audioResampled.SampleRate())
-	buffersrcContextParameters.SetTimeBase(audioStream.TimeBase())
-
-	if err := audioBuffersrcCtx.SetParameters(buffersrcContextParameters); err != nil {
-		return fmt.Errorf("update audio filter: setting buffersrc context parameters failed: %w", err)
-	}
-
-	if err := audioBuffersrcCtx.Initialize(nil); err != nil {
-		return fmt.Errorf("update audio filter: initializing buffersrc context failed: %w", err)
-	}
-
-	audioFilterOutputs.SetName("in")
-	audioFilterOutputs.SetFilterContext(audioBuffersrcCtx.FilterContext())
-	audioFilterOutputs.SetPadIdx(0)
-	audioFilterOutputs.SetNext(nil)
-
-	audioFilterInputs.SetName("out")
-	audioFilterInputs.SetFilterContext(audioBuffersinkCtx.FilterContext())
-	audioFilterInputs.SetPadIdx(0)
-	audioFilterInputs.SetNext(nil)
-
-	if err := audioFilterGraph.Parse("loudnorm,aresample=44100,asetnsamples=n=1024,aformat=sample_fmts=flt:sample_rates=44100:channel_layouts=stereo", audioFilterInputs, audioFilterOutputs); err != nil {
-		return fmt.Errorf("update audio filter: parsing filter failed: %w", err)
-	}
-
-	if err := audioFilterGraph.Configure(); err != nil {
-		return fmt.Errorf("update audio filter: configuring filter failed: %w", err)
-	}
-
-	return nil
-}
-
-func DecodeAudio(pkt *astiav.Packet) error {
-	if err := audioCodecCtx.SendPacket(pkt); err != nil {
+func (ast *AudioStream) Decode(pkt *astiav.Packet) error {
+	if err := ast.cc.SendPacket(pkt); err != nil {
 		return fmt.Errorf("audio decode: sending packet to audio decoder failed: %w", err)
 	}
 
 	for {
-		stop, err := decodeAudio()
+		stop, err := ast.decode()
 		if err != nil {
 			return err
 		}
 
 		if stop {
-			break
+			return nil
 		}
 	}
-
-	return nil
 }
 
-func decodeAudio() (bool, error) {
-	if err := audioCodecCtx.ReceiveFrame(audioDecoded); err != nil {
+func (ast *AudioStream) decode() (bool, error) {
+	if err := ast.cc.ReceiveFrame(ast.df); err != nil {
 		if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
 			return true, nil
 		}
-		return false, fmt.Errorf("decode: receiving frame failed: %w", err)
+		return false, fmt.Errorf("audio decode: receiving frame failed: %w", err)
 	}
 
-	defer audioDecoded.Unref()
+	defer ast.df.Unref()
 
-	if err := audioResamplerCtx.ConvertFrame(audioDecoded, audioResampled); err != nil {
-		return false, fmt.Errorf("decode: resampling decoded frame failed: %w", err)
+	if err := ast.src.ConvertFrame(ast.df, ast.rf); err != nil {
+		return false, fmt.Errorf("audio decode: resampling decoded frame failed: %w", err)
 	}
 
-	if nbSamples := audioResampled.NbSamples(); nbSamples > 0 {
-		if err := filterFrame(audioResampled); err != nil {
-			return false, err
+	if nbSamples := ast.rf.NbSamples(); nbSamples > 0 {
+		if err := ast.flushResampler(false); err != nil {
+			return false, fmt.Errorf("audio decode: flushing software resample context failed: %w", err)
 		}
-
-		if err := flushResampler(false); err != nil {
-			return false, fmt.Errorf("decode: flushing software resample context failed: %w", err)
-		}
+		return false, nil
 	}
 
 	return false, nil
 }
 
-func flushResampler(finalFlush bool) error {
+func (ast *AudioStream) flushResampler(finalFlush bool) error {
 	for {
-		if finalFlush || audioResamplerCtx.Delay(int64(audioResampled.SampleRate())) >= int64(audioResampled.NbSamples()) {
-			if err := audioResamplerCtx.ConvertFrame(nil, audioResampled); err != nil {
+		if finalFlush || ast.src.Delay(
+			int64(ast.rf.SampleRate())) >= int64(ast.rf.NbSamples()) {
+			if err := ast.src.ConvertFrame(nil, ast.rf); err != nil {
 				return fmt.Errorf("flush resampler: flushing resampler failed: %w", err)
 			}
 
-			if err := filterFrame(audioResampled); err != nil {
-				return fmt.Errorf("flush resampler: adding resampled frame to filter failed: %w", err)
-			}
+			ast.outputCallback(ast.df.Clone())
 
-			if finalFlush && audioResampled.NbSamples() == 0 {
+			if finalFlush && ast.rf.NbSamples() == 0 {
 				break
 			}
 			continue
@@ -221,73 +210,4 @@ func flushResampler(finalFlush bool) error {
 	}
 
 	return nil
-}
-
-func filterFrame(f *astiav.Frame) (err error) {
-	if err = audioBuffersrcCtx.AddFrame(f, astiav.NewBuffersrcFlags(astiav.BuffersrcFlagKeepRef)); err != nil {
-		return fmt.Errorf("filter audio: adding frame failed: %w", err)
-	}
-
-	for {
-		if stop, err := func() (bool, error) {
-			if err := audioBuffersinkCtx.GetFrame(audioFiltered, astiav.NewBuffersinkFlags()); err != nil {
-				if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
-					return true, nil
-				}
-				return false, fmt.Errorf("filter audio: getting frame failed: %w", err)
-			}
-
-			defer audioFiltered.Unref()
-
-			if err := processFifo(false); err != nil {
-				return false, err
-			}
-
-			return false, nil
-		}(); err != nil {
-			return err
-		} else if stop {
-			break
-		}
-
-	}
-	return
-}
-
-func processFifo(isFlush bool) error {
-	if audioFiltered.NbSamples() > 0 {
-		if _, err := audioFifo.Write(audioFiltered); err != nil {
-			return fmt.Errorf("process fifo: writing failed: %w", err)
-		}
-	}
-
-	for {
-		if (isFlush && audioFifo.Size() > 0) || (!isFlush && audioFifo.Size() >= audioCompleted.NbSamples()) {
-			n, err := audioFifo.Read(audioCompleted)
-			if err != nil {
-				return fmt.Errorf("process fifo: reading failed: %w", err)
-			}
-
-			audioCompleted.SetNbSamples(n)
-
-			Cur += float64(n) / float64(SAMPLE_RATE)
-
-			data, err := audioCompleted.Data().Bytes(1)
-			if err != nil {
-				return err
-			}
-			_, err = aw.Write(data)
-			if err != nil {
-				return err
-			}
-
-			continue
-		}
-		break
-	}
-	return nil
-}
-
-func AudioIndex() int {
-	return audioStream.Index()
 }

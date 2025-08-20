@@ -38,7 +38,7 @@ func (vst *VideoStream) Index() int {
 	return vst.st.Index()
 }
 
-func (vst *VideoStream) SetOutoutCallback(callback func(*astiav.Frame)) {
+func (vst *VideoStream) SetOutputCallback(callback func(*astiav.Frame)) {
 	vst.outputCallback = callback
 }
 

@@ -17,12 +17,14 @@ var (
 )
 
 type AudioStream struct {
-	st  *astiav.Stream
-	cc  *astiav.CodecContext
-	src *astiav.SoftwareResampleContext
+	st    *astiav.Stream
+	cc    *astiav.CodecContext
+	src   *astiav.SoftwareResampleContext
+	afifo *astiav.AudioFifo
 
 	df *astiav.Frame
 	rf *astiav.Frame
+	ff *astiav.Frame
 
 	closer *astikit.Closer
 
@@ -56,9 +58,9 @@ func WithAudioFormat(sf astiav.SampleFormat) ASOption {
 	}
 }
 
-func WithNBSamples(nbb int) ASOption {
+func WithNBSamples(nbs int) ASOption {
 	return func(a *ASConfig) {
-		a.nbSamples = nbb
+		a.nbSamples = nbs
 	}
 }
 
@@ -84,13 +86,31 @@ func NewAudioStream(opts ...ASOption) *AudioStream {
 	ast.rf = astiav.AllocFrame()
 	ast.closer.Add(ast.rf.Free)
 
-	ast.rf.SetSampleRate(c.sampleRate)
-	ast.rf.SetChannelLayout(c.channelLayout)
-	ast.rf.SetSampleFormat(c.audioFormat)
-	ast.rf.SetNbSamples(c.nbSamples)
+	ast.rf.SetSampleRate(44100)
+	ast.rf.SetChannelLayout(astiav.ChannelLayoutStereo)
+	ast.rf.SetSampleFormat(astiav.SampleFormatFlt)
+	ast.rf.SetNbSamples(1024)
 	if err := ast.rf.AllocBuffer(0); err != nil {
-		log.Fatal(fmt.Errorf("main: allocating buffer failed: %w", err))
+		log.Fatal(fmt.Errorf("audio stream: allocating rf buffer failed: %w", err))
 	}
+
+	ast.ff = astiav.AllocFrame()
+	ast.closer.Add(ast.ff.Free)
+
+	ast.ff.SetChannelLayout(ast.rf.ChannelLayout())
+	ast.ff.SetNbSamples(ast.rf.NbSamples())
+	ast.ff.SetSampleFormat(ast.rf.SampleFormat())
+	ast.ff.SetSampleRate(ast.rf.SampleRate())
+	if err := ast.ff.AllocBuffer(0); err != nil {
+		log.Fatal(fmt.Errorf("audio stream: allocating ff buffer failed: %w", err))
+	}
+
+	ast.afifo = astiav.AllocAudioFifo(
+		ast.ff.SampleFormat(),
+		ast.ff.ChannelLayout().Channels(),
+		ast.ff.NbSamples(),
+	)
+	ast.closer.Add(ast.afifo.Free)
 
 	ast.src = astiav.AllocSoftwareResampleContext()
 	ast.closer.Add(ast.src.Free)
@@ -106,7 +126,7 @@ func (ast *AudioStream) Index() int {
 	return ast.st.Index()
 }
 
-func (ast *AudioStream) SetOutoutCallback(callback func(*astiav.Frame)) {
+func (ast *AudioStream) SetOutputCallback(callback func(*astiav.Frame)) {
 	ast.outputCallback = callback
 }
 
@@ -181,7 +201,11 @@ func (ast *AudioStream) decode() (bool, error) {
 		return false, fmt.Errorf("audio decode: resampling decoded frame failed: %w", err)
 	}
 
+	ast.rf.SetPts(ast.df.Pts())
+
 	if nbSamples := ast.rf.NbSamples(); nbSamples > 0 {
+		ast.outputCallback(ast.rf.Clone())
+
 		if err := ast.flushResampler(false); err != nil {
 			return false, fmt.Errorf("audio decode: flushing software resample context failed: %w", err)
 		}
@@ -199,11 +223,10 @@ func (ast *AudioStream) flushResampler(finalFlush bool) error {
 				return fmt.Errorf("flush resampler: flushing resampler failed: %w", err)
 			}
 
-			ast.outputCallback(ast.df.Clone())
-
 			if finalFlush && ast.rf.NbSamples() == 0 {
 				break
 			}
+
 			continue
 		}
 		break

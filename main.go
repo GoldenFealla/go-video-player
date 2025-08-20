@@ -1,15 +1,20 @@
 package main
 
 import (
+	"image"
+	"image/color"
 	"io"
 	"log"
 	"os"
 
 	"gioui.org/app"
+	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"github.com/GoldenFealla/VideoPlayerGo/internal/decoder"
 	"github.com/GoldenFealla/VideoPlayerGo/internal/media"
+	"github.com/GoldenFealla/VideoPlayerGo/internal/widget"
 	"github.com/asticode/go-astiav"
 	"github.com/ebitengine/oto/v3"
 )
@@ -20,13 +25,15 @@ var (
 )
 
 var (
-	Input string = "./test.mp4"
+	Input string = "./Daisy Crown.mp4"
 )
 
 var (
-	audioStream  *decoder.AudioStream
-	videoStream  *decoder.VideoStream
-	synchronizer *media.Media
+	audioStream *decoder.AudioStream
+	videoStream *decoder.VideoStream
+	Media       *media.Media
+
+	outputVideo chan image.Image
 )
 
 // Oto
@@ -41,7 +48,8 @@ var (
 
 func init() {
 	var err error
-	ar, _ := io.Pipe()
+	inputAudio, outputAudio := io.Pipe()
+	outputVideo = make(chan image.Image, 3)
 
 	videoStream = decoder.NewVideoStream()
 	audioStream = decoder.NewAudioStream(
@@ -51,8 +59,8 @@ func init() {
 		decoder.WithNBSamples(1024),
 	)
 
-	synchronizer = media.NewMedia(videoStream, audioStream)
-	if err := synchronizer.Load(Input); err != nil {
+	Media = media.NewMedia(videoStream, audioStream, outputVideo, outputAudio)
+	if err := Media.Load(Input); err != nil {
 		log.Fatal(err)
 	}
 
@@ -61,19 +69,20 @@ func init() {
 		panic("oto.NewContext failed: " + err.Error())
 	}
 	<-readyChan
-	AudioPlayer = otoCtx.NewPlayer(ar)
-	AudioPlayer.SetVolume(0.5)
+	AudioPlayer = otoCtx.NewPlayer(inputAudio)
+	AudioPlayer.SetVolume(0.25)
 }
 
 func main() {
 	defer func() {
 		videoStream.Close()
 		audioStream.Close()
-		synchronizer.Close()
+		Media.Close()
 
 		AudioPlayer.Close()
 	}()
 
+	go Media.Decode()
 	go func() {
 		w := new(app.Window)
 		w.Option(
@@ -102,10 +111,19 @@ func draw(window *app.Window) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, typ)
 
-			// layout.Flex{}.Layout(
-			// 	gtx,
-			// 	layout.Flexed(1, widget.VideoFrame),
-			// )
+			paint.Fill(gtx.Ops, color.NRGBA{
+				R: 0,
+				G: 0,
+				B: 0,
+				A: 255,
+			})
+
+			layout.Flex{}.Layout(
+				gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return widget.VideoFrame(gtx, outputVideo)
+				}),
+			)
 
 			typ.Frame(gtx.Ops)
 		case app.DestroyEvent:

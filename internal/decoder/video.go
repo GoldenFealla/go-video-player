@@ -9,8 +9,10 @@ import (
 )
 
 type VideoStream struct {
-	st *astiav.Stream
-	cc *astiav.CodecContext
+	st       *astiav.Stream
+	cc       *astiav.CodecContext
+	i        int
+	timebase float64
 
 	df *astiav.Frame
 
@@ -35,7 +37,11 @@ func (vst *VideoStream) Close() {
 }
 
 func (vst *VideoStream) Index() int {
-	return vst.st.Index()
+	return vst.i
+}
+
+func (vst *VideoStream) Timebase() float64 {
+	return vst.timebase
 }
 
 func (vst *VideoStream) SetOutputCallback(callback func(*astiav.Frame)) {
@@ -53,6 +59,8 @@ func (vst *VideoStream) LoadInputContext(i *astiav.FormatContext) error {
 		}
 
 		vst.st = is
+		vst.i = is.Index()
+		vst.timebase = is.TimeBase().Float64()
 
 		codec := astiav.FindDecoder(is.CodecParameters().CodecID())
 		if codec == nil {

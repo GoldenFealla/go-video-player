@@ -135,10 +135,11 @@ func (m *Media) EnqueueVideoFrame(f *astiav.Frame) {
 
 	m.lastVideoPts = f.Pts()
 	fmt.Printf(
-		"video: %10d audio: %10d a/v: %10d\r",
+		"video: %10d audio: %10d a/v: %+2.3f\r",
 		m.lastVideoPts,
 		m.lastAudioPts,
-		m.lastAudioPts-m.lastVideoPts,
+		float64(m.lastAudioPts)*m.audioStream.Timebase()-
+			float64(m.lastVideoPts)*m.videoStream.Timebase(),
 	)
 }
 
@@ -156,9 +157,10 @@ func (m *Media) EnqueueAudioFrame(f *astiav.Frame) {
 
 	m.lastAudioPts = f.Pts()
 	fmt.Printf(
-		"video: %10d audio: %10d a/v: %10d\r",
+		"video: %10d audio: %10d a/v: %+2.3f\r",
 		m.lastVideoPts,
 		m.lastAudioPts,
-		m.lastAudioPts-m.lastVideoPts,
+		float64(m.lastAudioPts)*m.audioStream.Timebase()-
+			float64(m.lastVideoPts)*m.videoStream.Timebase(),
 	)
 }

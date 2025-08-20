@@ -17,10 +17,12 @@ var (
 )
 
 type AudioStream struct {
-	st    *astiav.Stream
-	cc    *astiav.CodecContext
-	src   *astiav.SoftwareResampleContext
-	afifo *astiav.AudioFifo
+	st       *astiav.Stream
+	cc       *astiav.CodecContext
+	i        int
+	timebase float64
+	src      *astiav.SoftwareResampleContext
+	afifo    *astiav.AudioFifo
 
 	df *astiav.Frame
 	rf *astiav.Frame
@@ -123,7 +125,11 @@ func (ast *AudioStream) Close() {
 }
 
 func (ast *AudioStream) Index() int {
-	return ast.st.Index()
+	return ast.i
+}
+
+func (ast *AudioStream) Timebase() float64 {
+	return ast.timebase
 }
 
 func (ast *AudioStream) SetOutputCallback(callback func(*astiav.Frame)) {
@@ -141,6 +147,8 @@ func (ast *AudioStream) LoadInputContext(i *astiav.FormatContext) error {
 		}
 
 		ast.st = is
+		ast.i = is.Index()
+		ast.timebase = is.TimeBase().Float64()
 
 		codec := astiav.FindDecoder(is.CodecParameters().CodecID())
 		if codec == nil {

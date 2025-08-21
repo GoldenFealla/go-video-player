@@ -15,6 +15,8 @@ import (
 type Media struct {
 	closer *astikit.Closer
 
+	afifo *astiav.AudioFifo
+
 	iformat *astiav.FormatContext
 
 	videoStream *decoder.VideoStream
@@ -72,6 +74,13 @@ func (m *Media) Load(input string) error {
 		return fmt.Errorf("loaded audio stream failed: %w", err)
 	}
 	m.audioStream.SetOutputCallback(m.EnqueueAudioFrame)
+
+	m.afifo = astiav.AllocAudioFifo(
+		m.audioStream.SampleFormat(),
+		m.audioStream.Channel(),
+		m.audioStream.NbSamples(),
+	)
+	m.closer.Add(m.afifo.Free)
 
 	return nil
 }
@@ -132,35 +141,47 @@ func (m *Media) EnqueueVideoFrame(f *astiav.Frame) {
 	}
 
 	m.outputVideo <- i
-
 	m.lastVideoPts = f.Pts()
-	fmt.Printf(
-		"video: %10d audio: %10d a/v: %+2.3f\r",
-		m.lastVideoPts,
-		m.lastAudioPts,
-		float64(m.lastAudioPts)*m.audioStream.Timebase()-
-			float64(m.lastVideoPts)*m.videoStream.Timebase(),
-	)
 }
 
 func (m *Media) EnqueueAudioFrame(f *astiav.Frame) {
 	defer f.Free()
-
-	d, err := f.Data().Bytes(1)
-	if err != nil {
-		log.Println("skip audio frame")
-	}
-	_, err = m.outputAudio.Write(d)
-	if err != nil {
-		log.Println("skip audio frame")
+	if _, err := m.afifo.Write(f); err != nil {
+		log.Println(err)
 	}
 
-	m.lastAudioPts = f.Pts()
-	fmt.Printf(
-		"video: %10d audio: %10d a/v: %+2.3f\r",
-		m.lastVideoPts,
-		m.lastAudioPts,
-		float64(m.lastAudioPts)*m.audioStream.Timebase()-
-			float64(m.lastVideoPts)*m.videoStream.Timebase(),
-	)
+}
+
+func (m *Media) Sync() {
+	f := astiav.AllocFrame()
+	defer f.Free()
+
+	f.SetChannelLayout(m.audioStream.ChannelLayout())
+	f.SetSampleRate(m.audioStream.SampleRate())
+	f.SetSampleFormat(m.audioStream.SampleFormat())
+	f.SetNbSamples(m.audioStream.NbSamples())
+	if err := f.AllocBuffer(0); err != nil {
+		log.Println(err)
+	}
+
+	for {
+		if m.afifo.Size() >= f.NbSamples() {
+			n, err := m.afifo.Read(f)
+			if err != nil {
+				log.Println(fmt.Errorf("sync: reading audio failed: %w", err))
+			}
+			f.SetNbSamples(n)
+
+			d, err := f.Data().Bytes(1)
+			if err != nil {
+				log.Println(fmt.Errorf("sync: reading audio bytes failed: %w", err))
+			}
+			m.outputAudio.Write(d)
+
+			m.lastAudioPts += int64(n)
+			fmt.Printf("%.2f s\r", float64(m.lastAudioPts)*m.audioStream.Timebase())
+		}
+
+	}
+
 }

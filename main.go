@@ -25,7 +25,7 @@ var (
 )
 
 var (
-	Input string = "./The Lost Beyond.mp4"
+	Input string = "./test.mp4"
 )
 
 var (
@@ -83,6 +83,7 @@ func main() {
 	}()
 
 	go Media.Decode()
+	go Media.Sync()
 	go func() {
 		w := new(app.Window)
 		w.Option(

@@ -15,6 +15,7 @@ import (
 type Media struct {
 	closer *astikit.Closer
 
+	vfifo *FrameQueue
 	afifo *astiav.AudioFifo
 
 	iformat *astiav.FormatContext
@@ -27,6 +28,8 @@ type Media struct {
 
 	lastVideoPts int64
 	lastAudioPts int64
+
+	cur float64
 }
 
 func NewMedia(
@@ -36,6 +39,7 @@ func NewMedia(
 	outputAudio io.Writer,
 ) *Media {
 	return &Media{
+		vfifo:       NewFrameQueue(3),
 		videoStream: videoStream,
 		audioStream: audioStream,
 		outputVideo: outputVideo,
@@ -130,18 +134,11 @@ func (m *Media) readPacket(pkt *astiav.Packet) (bool, error) {
 
 func (m *Media) EnqueueVideoFrame(f *astiav.Frame) {
 	defer f.Free()
-	i, err := f.Data().GuessImageFormat()
-	if err != nil {
-		log.Println("skip video frame")
+	if _, err := m.afifo.Write(f); err != nil {
+		log.Println(err)
 	}
+	m.vfifo.Write(f)
 
-	err = f.Data().ToImage(i)
-	if err != nil {
-		log.Println("skip video frame")
-	}
-
-	m.outputVideo <- i
-	m.lastVideoPts = f.Pts()
 }
 
 func (m *Media) EnqueueAudioFrame(f *astiav.Frame) {
@@ -149,7 +146,6 @@ func (m *Media) EnqueueAudioFrame(f *astiav.Frame) {
 	if _, err := m.afifo.Write(f); err != nil {
 		log.Println(err)
 	}
-
 }
 
 func (m *Media) Sync() {
@@ -177,9 +173,27 @@ func (m *Media) Sync() {
 				log.Println(fmt.Errorf("sync: reading audio bytes failed: %w", err))
 			}
 			m.outputAudio.Write(d)
-
 			m.lastAudioPts += int64(n)
-			fmt.Printf("%.2f s\r", float64(m.lastAudioPts)*m.audioStream.Timebase())
+			m.cur = float64(m.lastAudioPts) * m.audioStream.Timebase()
+
+			if float64(m.vfifo.CurrentFramePTS())*m.videoStream.Timebase() < m.cur {
+				vf := m.vfifo.Read()
+				if vf != nil {
+					i, err := vf.Data().GuessImageFormat()
+					if err != nil {
+						log.Println(fmt.Errorf("skip video frame: %w", err))
+					}
+
+					err = vf.Data().ToImage(i)
+					if err != nil {
+						log.Println(fmt.Errorf("skip video frame: %w", err))
+					}
+
+					m.outputVideo <- i
+					m.lastVideoPts = f.Pts()
+					vf.Free()
+				}
+			}
 		}
 
 	}

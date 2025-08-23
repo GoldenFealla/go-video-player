@@ -134,9 +134,6 @@ func (m *Media) readPacket(pkt *astiav.Packet) (bool, error) {
 
 func (m *Media) EnqueueVideoFrame(f *astiav.Frame) {
 	defer f.Free()
-	if _, err := m.afifo.Write(f); err != nil {
-		log.Println(err)
-	}
 	m.vfifo.Write(f)
 
 }

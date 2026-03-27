@@ -1,6 +1,6 @@
-### go-video-player
+# go-video-player
 
-### Description
+## Description
 
 A simple video player written in Go, built on top of low-level multimedia libraries such as FFmpeg (via astiav bindings) and SDL.
 
@@ -12,9 +12,9 @@ Building a minimal media player from "scratch" in Go
 
 It is intended for learning, experimentation, and low-level media processing rather than being a full-featured production player.
 
-### Installation
+## Installation
 
-## Requirements
+### Requirements
 
 Go (1.20+ recommended)
 FFmpeg libraries
@@ -36,7 +36,7 @@ git clone https://github.com/GoldenFealla/go-video-player
 cd go-video-player
 go mod tidy
 
-### Instruction
+## Instruction
 
 Run the player
 

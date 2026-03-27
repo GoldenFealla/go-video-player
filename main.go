@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,6 +27,15 @@ func init() {
 }
 
 func main() {
+	log.Printf("Starting program as PID: %d\n", os.Getpid())
+
+	if len(os.Args) < 2 {
+		log.Fatal("Usage: go run main.go <video_file>")
+	}
+	inputPath := os.Args[1]
+
+	fileName := filepath.Base(inputPath)
+
 	sdl.Init(sdl.INIT_VIDEO | sdl.INIT_AUDIO)
 	defer sdl.Quit()
 
@@ -42,7 +53,7 @@ func main() {
 	sdl.PauseAudioDevice(deviceID, false)
 
 	window, _ := sdl.CreateWindow(
-		"Video",
+		fileName,
 		sdl.WINDOWPOS_CENTERED,
 		sdl.WINDOWPOS_CENTERED,
 		800, 600,
@@ -55,7 +66,7 @@ func main() {
 	p := player.NewPlayer()
 	p.Clock.DeviceID = deviceID
 
-	go p.Play("test_video_3.mp4")
+	go p.Play(inputPath)
 
 	for {
 		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
@@ -81,9 +92,11 @@ func main() {
 			texture.UpdateYUV(nil, vf.Y, vf.W, vf.U, vf.W/2, vf.V, vf.W/2)
 			renderer.Copy(texture, nil, nil)
 			renderer.Present()
+
 		case af := <-p.AudioOut:
 			sdl.QueueAudio(deviceID, af.Samples)
 			p.Clock.UpdateAudio(af.NbSamples)
+
 		default:
 			time.Sleep(time.Millisecond)
 		}

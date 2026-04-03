@@ -7,4 +7,8 @@ require (
 	github.com/veandco/go-sdl2 v0.4.40
 )
 
-require github.com/asticode/go-astikit v0.42.0
+require (
+	github.com/AllenDang/cimgui-go v1.4.0
+	github.com/asticode/go-astikit v0.42.0
+	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276
+)

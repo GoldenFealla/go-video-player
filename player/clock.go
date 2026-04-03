@@ -1,30 +1,20 @@
 package player
 
-import (
-	"sync"
+import "sync"
 
-	"github.com/veandco/go-sdl2/sdl"
-)
-
-type Clock struct {
-	mu sync.Mutex
-
-	totalBytes uint32
-
-	DeviceID sdl.AudioDeviceID
+type clock struct {
+	sync.RWMutex
+	t uint32
 }
 
-func (c *Clock) UpdateAudio(l uint32) {
-	c.mu.Lock()
-	c.totalBytes += l
-	c.mu.Unlock()
+func (c *clock) set(n uint32) {
+	c.Lock()
+	defer c.Unlock()
+	c.t = n
 }
 
-func (c *Clock) Audio() float64 {
-	c.mu.Lock()
-	t := c.totalBytes
-	c.mu.Unlock()
-	bp := t - sdl.GetQueuedAudioSize(c.DeviceID)
-	elapsed := float64(bp) / float64(48000*2*4)
-	return elapsed
+func (c *clock) get() uint32 {
+	c.RLock()
+	defer c.RUnlock()
+	return c.t
 }

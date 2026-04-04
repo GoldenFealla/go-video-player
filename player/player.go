@@ -15,7 +15,8 @@ type audiodecoder struct {
 	ctx    *astiav.CodecContext
 	src    *astiav.SoftwareResampleContext
 
-	timebase float64
+	has      bool
+	timebase astiav.Rational
 }
 
 func newaudiodecoder() *audiodecoder {
@@ -32,6 +33,7 @@ func (ad *audiodecoder) close() {
 }
 
 type AudioData struct {
+	PTS     int64
 	Samples []byte
 }
 
@@ -57,7 +59,8 @@ func (ad *audiodecoder) load(stream *astiav.Stream) error {
 		return fmt.Errorf("audio decoder: opening codec context failed: %w", err)
 	}
 
-	ad.timebase = stream.TimeBase().Float64()
+	ad.timebase = stream.TimeBase()
+	ad.has = true
 	return nil
 }
 
@@ -101,13 +104,9 @@ func (ad *audiodecoder) decodeloop(f, r *astiav.Frame, input chan<- AudioData) b
 
 	if nbSamples := r.NbSamples(); nbSamples > 0 {
 		buf, _ := r.Data().Bytes(1)
-		// pts := float64(f.Pts()) * ad.timebase
-
 		input <- AudioData{
-			// PTS:       pts,
-			// NbSamples: uint32(len(buf)),
+			PTS:     f.Pts(),
 			Samples: buf,
-			// Rate:      48000,
 		}
 	}
 
@@ -120,7 +119,8 @@ type videodecoder struct {
 
 	ctx *astiav.CodecContext
 
-	timebase float64
+	has      bool
+	timebase astiav.Rational
 }
 
 func newvideodecoder() *videodecoder {
@@ -163,7 +163,8 @@ func (vd *videodecoder) load(stream *astiav.Stream) error {
 		return fmt.Errorf("video decoder: opening codec context failed: %w", err)
 	}
 
-	vd.timebase = stream.TimeBase().Float64()
+	vd.timebase = stream.TimeBase()
+	vd.has = true
 	return nil
 }
 
@@ -319,7 +320,7 @@ type Player struct {
 func NewPlayer() *Player {
 	return &Player{
 		codec: newcodec(),
-		clock: &clock{t: 0},
+		clock: &clock{d: 0},
 
 		audiooutput: make(chan AudioData, 16),
 		videooutput: make(chan VideoData, 16),
@@ -334,12 +335,12 @@ func (p *Player) VideoOutput() <-chan VideoData {
 	return p.videooutput
 }
 
-func (p *Player) SetClock(n uint32) {
+func (p *Player) SetCurrent(n int64) {
 	p.clock.set(n)
 }
 
-func (p *Player) GetClock() uint32 {
-	return p.clock.get()
+func (p *Player) GetSecond() float64 {
+	return p.clock.time()
 }
 
 func (p *Player) Seek() {
@@ -350,6 +351,12 @@ func (p *Player) Play(path string) error {
 	err := p.codec.load(path)
 	if err != nil {
 		return err
+	}
+
+	fmt.Println(p.codec.audio.timebase)
+
+	if p.codec.audio.has {
+		p.clock.b = astiav.NewRational(1, 48000*4)
 	}
 
 	p.codec.parse(p.audiooutput, p.videooutput)

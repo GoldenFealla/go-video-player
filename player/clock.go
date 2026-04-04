@@ -1,20 +1,31 @@
 package player
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/asticode/go-astiav"
+)
 
 type clock struct {
 	sync.RWMutex
-	t uint32
+	d int64
+	b astiav.Rational
 }
 
-func (c *clock) set(n uint32) {
+func (c *clock) set(n int64) {
 	c.Lock()
 	defer c.Unlock()
-	c.t = n
+	c.d = n
 }
 
-func (c *clock) get() uint32 {
+func (c *clock) get() int64 {
 	c.RLock()
 	defer c.RUnlock()
-	return c.t
+	return c.d
+}
+
+func (c *clock) time() float64 {
+	c.RLock()
+	defer c.RUnlock()
+	return c.b.Float64() * float64(c.d)
 }

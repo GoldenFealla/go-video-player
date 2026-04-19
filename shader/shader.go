@@ -1,7 +1,7 @@
 package shader
 
 import (
-	"GoldenFealla/go-video-player/player"
+	"GoldenFealla/go-video-player/codec"
 
 	"github.com/go-gl/gl/v4.6-compatibility/gl"
 )
@@ -157,7 +157,7 @@ const (
 	ZeroBorder  = 0
 )
 
-func RenderYUV(frame player.VideoData) {
+func RenderYUV(frame codec.VideoData) {
 	ySize := frame.W * frame.H
 	uvSize := ySize / 4
 	y := frame.Data[:ySize]

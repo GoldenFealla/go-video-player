@@ -3,7 +3,7 @@ module GoldenFealla/go-video-player
 go 1.25.3
 
 require (
-	github.com/asticode/go-astiav v0.39.0
+	github.com/asticode/go-astiav v0.40.0
 	github.com/veandco/go-sdl2 v0.4.40
 )
 

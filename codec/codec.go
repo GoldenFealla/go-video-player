@@ -8,6 +8,17 @@ import (
 	"github.com/asticode/go-astiav"
 )
 
+type AudioMetadata struct {
+	Freq     int
+	Timebase astiav.Rational
+}
+
+type VideoMetadata struct {
+	W        int
+	H        int
+	Timebase astiav.Rational
+}
+
 // ====== CODEC ======
 type Codec struct {
 	ic *astiav.FormatContext
@@ -32,28 +43,40 @@ func NewCodec() *Codec {
 	}
 }
 
-func (c *Codec) Load(path string) error {
+func (c *Codec) Load(path string) (*VideoMetadata, *AudioMetadata, error) {
 	if err := c.ic.OpenInput(path, nil, nil); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	if err := c.ic.FindStreamInfo(nil); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	var err error
+	var am *AudioMetadata = nil
+	var vm *VideoMetadata = nil
+
 	for _, s := range c.ic.Streams() {
 		switch s.CodecParameters().MediaType() {
 		case astiav.MediaTypeVideo:
 			c.videoidx = s.Index()
 			err = c.video.load(s)
+
+			vm = &VideoMetadata{}
+			vm.H = s.CodecParameters().Height()
+			vm.W = s.CodecParameters().Width()
+			vm.Timebase = s.TimeBase()
 		case astiav.MediaTypeAudio:
 			c.audioidx = s.Index()
 			err = c.audio.load(s)
+
+			am = &AudioMetadata{}
+			am.Freq = s.CodecParameters().SampleRate()
+			am.Timebase = s.TimeBase()
 		}
 	}
 
-	return err
+	return vm, am, err
 }
 
 func (c *Codec) Parse() {
@@ -83,12 +106,4 @@ func (c *Codec) Parse() {
 			break
 		}
 	}
-}
-
-func (c *Codec) HasAudio() bool {
-	return c.audio.hasaudio
-}
-
-func (c *Codec) AudioTimebase() astiav.Rational {
-	return c.audio.tb
 }

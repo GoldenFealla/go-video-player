@@ -107,7 +107,6 @@ func main() {
 	go p.Clock()
 
 	var latestFrame codec.VideoData
-	var diff float64
 
 	// ====== LOOP =====
 	for {
@@ -131,20 +130,9 @@ func main() {
 			}
 		}
 
-		f := p.VideoBuffer().PeekBlocking()
-
-		if f != nil {
-			master := p.Second()
-			diff = f.PTS - master
-
-			switch {
-			case diff > 0:
-			case diff < -0.041:
-				p.VideoBuffer().Pop()
-			default:
-				latestFrame = *f
-				p.VideoBuffer().Pop()
-			}
+		f := p.LatestFrame()
+		if len(f.Data) > 0 {
+			latestFrame = f
 		}
 
 		w, h := window.GetSize()
@@ -157,15 +145,32 @@ func main() {
 
 		// ==== frame ====
 		imgui.NewFrame()
+		barHeight := float32(40)
 
-		// ----- gui -----
-		imgui.Begin("Control")
-		imgui.SliderFloat("volume", &p.Volume, 0, 1)
+		imgui.SetNextWindowPos(imgui.Vec2{
+			X: 0,
+			Y: float32(h) - barHeight,
+		})
+
+		imgui.SetNextWindowSize(imgui.Vec2{
+			X: float32(w),
+			Y: barHeight,
+		})
+
+		flags := imgui.WindowFlagsNoTitleBar |
+			imgui.WindowFlagsNoResize |
+			imgui.WindowFlagsNoMove |
+			imgui.WindowFlagsNoCollapse
+
+		imgui.BeginV("Control", nil, flags)
+
+		imgui.SliderFloatV("##volume", &p.Volume, 0, 1, "%.2f", 0)
+		imgui.SameLine()
 		imgui.Text(fmt.Sprintf("%.2fs", p.Second()))
-		imgui.Text(fmt.Sprintf("%+.3fs", diff))
-		imgui.End()
 
+		imgui.End()
 		imgui.Render()
+
 		// --- render ---
 		gl.Viewport(0, 0, int32(w), int32(h))
 		gl.Clear(gl.COLOR_BUFFER_BIT)

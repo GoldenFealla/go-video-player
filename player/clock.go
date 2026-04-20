@@ -6,17 +6,17 @@ import (
 
 type clock struct {
 	sync.RWMutex
-	d float64
+	t float64
 }
 
-func (c *clock) set(n float64) {
+func (c *clock) set(t float64) {
 	c.Lock()
 	defer c.Unlock()
-	c.d = n
+	c.t = t
 }
 
 func (c *clock) get() float64 {
 	c.RLock()
 	defer c.RUnlock()
-	return c.d
+	return c.t
 }

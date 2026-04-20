@@ -67,40 +67,19 @@ func initYUVTextures() {
 	setup(texV)
 }
 
-func compile(source string, shaderType uint32) uint32 {
-	shader := gl.CreateShader(shaderType)
-
-	csource, free := gl.Strs(source + "\x00")
-	gl.ShaderSource(shader, 1, csource, nil)
-	free()
-
-	gl.CompileShader(shader)
-
-	var status int32
-	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
-	if status == gl.FALSE {
-		var logLength int32
-		gl.GetShaderiv(shader, gl.INFO_LOG_LENGTH, &logLength)
-
-		log := string(make([]byte, logLength+1))
-		gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))
-
-		panic("shader compile error: " + log)
-	}
-
-	return shader
-}
-
 func createYUVShader() uint32 {
 	vertexShaderSource := `
 		#version 130
 		attribute vec2 position;
 		attribute vec2 texCoord;
+
 		varying vec2 vTexCoord;
+		uniform vec2 scale;
 
 		void main() {
 			vTexCoord = texCoord;
-			gl_Position = vec4(position, 0.0, 1.0);
+			vec2 pos = position * scale;
+			gl_Position = vec4(pos, 0.0, 1.0);
 		}
 	`
 
@@ -157,7 +136,7 @@ const (
 	ZeroBorder  = 0
 )
 
-func RenderYUV(frame codec.VideoData) {
+func RenderYUV(frame codec.VideoData, winW, winH int) {
 	ySize := frame.W * frame.H
 	uvSize := ySize / 4
 	y := frame.Data[:ySize]
@@ -197,9 +176,9 @@ func RenderYUV(frame codec.VideoData) {
 	upload(texU, u, frame.W/2, frame.H/2)
 	upload(texV, v, frame.W/2, frame.H/2)
 
-	lastW, lastH = frame.W, frame.H
-
 	gl.UseProgram(programyuv)
+	sx, sy := computeScale(frame.W, frame.H, winW, winH)
+	gl.Uniform2f(gl.GetUniformLocation(programyuv, gl.Str("scale\x00")), sx, sy)
 	gl.Uniform1i(gl.GetUniformLocation(programyuv, gl.Str("texY\x00")), 0)
 	gl.Uniform1i(gl.GetUniformLocation(programyuv, gl.Str("texU\x00")), 1)
 	gl.Uniform1i(gl.GetUniformLocation(programyuv, gl.Str("texV\x00")), 2)
@@ -214,4 +193,45 @@ func RenderYUV(frame codec.VideoData) {
 	gl.BindVertexArray(vao)
 	gl.DrawArrays(gl.TRIANGLE_FAN, 0, 4)
 	gl.BindVertexArray(0)
+}
+
+func compile(source string, shaderType uint32) uint32 {
+	shader := gl.CreateShader(shaderType)
+
+	csource, free := gl.Strs(source + "\x00")
+	gl.ShaderSource(shader, 1, csource, nil)
+	free()
+
+	gl.CompileShader(shader)
+
+	var status int32
+	gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)
+	if status == gl.FALSE {
+		var logLength int32
+		gl.GetShaderiv(shader, gl.INFO_LOG_LENGTH, &logLength)
+
+		log := string(make([]byte, logLength+1))
+		gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))
+
+		panic("shader compile error: " + log)
+	}
+
+	return shader
+}
+
+func computeScale(videoW, videoH, winW, winH int) (float32, float32) {
+	videoAspect := float32(videoW) / float32(videoH)
+	winAspect := float32(winW) / float32(winH)
+
+	var sx, sy float32
+
+	if winAspect > videoAspect {
+		sx = videoAspect / winAspect
+		sy = 1.0
+	} else {
+		sx = 1.0
+		sy = winAspect / videoAspect
+	}
+
+	return sx, sy
 }

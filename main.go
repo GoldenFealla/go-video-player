@@ -176,7 +176,7 @@ func main() {
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		if len(latestFrame.Data) > 0 {
-			shader.RenderYUV(latestFrame)
+			shader.RenderYUV(latestFrame, int(w), int(h))
 		}
 
 		opengl3.RenderDrawData(imgui.CurrentDrawData())

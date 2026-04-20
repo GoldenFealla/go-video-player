@@ -28,11 +28,10 @@ func NewAudioBuffer(capacity int) *AudioBuffer {
 	return ab
 }
 
-func (ab *AudioBuffer) Push(d AudioData) {
+func (ab *AudioBuffer) Push(d AudioData) bool {
 	ab.mu.Lock()
 	defer ab.mu.Unlock()
 
-	// wait if full
 	for ab.size == ab.capa {
 		ab.cond.Wait()
 	}
@@ -42,9 +41,10 @@ func (ab *AudioBuffer) Push(d AudioData) {
 	ab.size++
 
 	ab.cond.Signal()
+	return true
 }
 
-func (ab *AudioBuffer) PeekBlocking() AudioData {
+func (ab *AudioBuffer) Peek() *AudioData {
 	ab.mu.Lock()
 	defer ab.mu.Unlock()
 
@@ -52,13 +52,13 @@ func (ab *AudioBuffer) PeekBlocking() AudioData {
 		ab.cond.Wait()
 	}
 
-	return ab.data[ab.r]
+	return &ab.data[ab.r]
 }
+
 func (ab *AudioBuffer) Pop() {
 	ab.mu.Lock()
 	defer ab.mu.Unlock()
 
-	// wait if empty
 	for ab.size == 0 {
 		ab.cond.Wait()
 	}
@@ -66,8 +66,22 @@ func (ab *AudioBuffer) Pop() {
 	ab.data[ab.r] = AudioData{}
 	ab.r = (ab.r + 1) % ab.capa
 	ab.size--
-
 	ab.cond.Signal()
+}
+
+func (ab *AudioBuffer) Clear() {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+
+	ab.r = 0
+	ab.w = 0
+	ab.size = 0
+
+	for i := range ab.data {
+		ab.data[i] = AudioData{}
+	}
+
+	ab.cond.Broadcast()
 }
 
 type VideoData struct {
@@ -88,52 +102,63 @@ type VideoBuffer struct {
 }
 
 func NewVideoBuffer(capacity int) *VideoBuffer {
-	ab := &VideoBuffer{
+	vb := &VideoBuffer{
 		data: make([]VideoData, capacity),
 		capa: capacity,
 	}
-	ab.cond = sync.NewCond(&ab.mu)
-	return ab
+	vb.cond = sync.NewCond(&vb.mu)
+	return vb
 }
 
-func (ab *VideoBuffer) Push(d VideoData) {
-	ab.mu.Lock()
-	defer ab.mu.Unlock()
+func (vb *VideoBuffer) Push(d VideoData) bool {
+	vb.mu.Lock()
+	defer vb.mu.Unlock()
 
-	// wait if full
-	for ab.size == ab.capa {
-		ab.cond.Wait()
+	for vb.size == vb.capa {
+		vb.cond.Wait()
 	}
 
-	ab.data[ab.w] = d
-	ab.w = (ab.w + 1) % ab.capa
-	ab.size++
+	vb.data[vb.w] = d
+	vb.w = (vb.w + 1) % vb.capa
+	vb.size++
 
-	ab.cond.Signal()
+	vb.cond.Signal()
+	return true
 }
 
-func (ab *VideoBuffer) PeekBlocking() *VideoData {
-	ab.mu.Lock()
-	defer ab.mu.Unlock()
-
-	for ab.size == 0 {
-		ab.cond.Wait()
-	}
-
-	return &ab.data[ab.r]
+func (vb *VideoBuffer) Peek() *VideoData {
+	vb.mu.Lock()
+	defer vb.mu.Unlock()
+	return &vb.data[vb.r]
 }
-func (ab *VideoBuffer) Pop() {
-	ab.mu.Lock()
-	defer ab.mu.Unlock()
+
+func (vb *VideoBuffer) Pop() {
+	vb.mu.Lock()
+	defer vb.mu.Unlock()
 
 	// wait if empty
-	for ab.size == 0 {
-		ab.cond.Wait()
+	for vb.size == 0 {
+		vb.cond.Wait()
 	}
 
-	ab.data[ab.r] = VideoData{}
-	ab.r = (ab.r + 1) % ab.capa
-	ab.size--
+	vb.data[vb.r] = VideoData{}
+	vb.r = (vb.r + 1) % vb.capa
+	vb.size--
 
-	ab.cond.Signal()
+	vb.cond.Signal()
+}
+
+func (vb *VideoBuffer) Clear() {
+	vb.mu.Lock()
+	defer vb.mu.Unlock()
+
+	vb.r = 0
+	vb.w = 0
+	vb.size = 0
+
+	for i := range vb.data {
+		vb.data[i] = VideoData{}
+	}
+
+	vb.cond.Broadcast()
 }

@@ -1,22 +1,18 @@
 package player
 
 import (
-	"sync"
+	"math"
+	"sync/atomic"
 )
 
 type clock struct {
-	sync.RWMutex
-	t float64
+	t atomic.Uint64
 }
 
-func (c *clock) set(t float64) {
-	c.Lock()
-	defer c.Unlock()
-	c.t = t
+func (c *clock) set(f float64) {
+	c.t.Store(math.Float64bits(f))
 }
 
 func (c *clock) get() float64 {
-	c.RLock()
-	defer c.RUnlock()
-	return c.t
+	return math.Float64frombits(c.t.Load())
 }

@@ -102,12 +102,14 @@ func main() {
 	defer opengl3.DestroyDeviceObjects()
 
 	p = player.NewPlayer()
-	p.Load("test_video_1.mp4")
+	p.Load("test_video_3.mp4")
 
 	go p.Play()
-	go p.Clock()
 
 	var latestFrame codec.VideoData
+
+	var sliderSecond float32
+	var sliderSecondV float32
 
 	// ====== LOOP =====
 	for {
@@ -167,7 +169,17 @@ func main() {
 		avail := imgui.ContentRegionAvail().X
 
 		imgui.PushItemWidth(avail * 0.7)
-		imgui.SliderFloat("##second", &p.Second, 0, p.Duration)
+
+		if !imgui.IsItemActive() {
+			sliderSecond = p.GetSecond()
+		}
+		if imgui.SliderFloatV("##second", &sliderSecond, 0, p.Duration, "", imgui.SliderFlagsAlwaysClamp) {
+			sliderSecondV = sliderSecond
+		}
+		if imgui.IsItemDeactivatedAfterEdit() {
+			p.SeekSecond(sliderSecondV)
+		}
+
 		imgui.PopItemWidth()
 
 		imgui.SameLine()
@@ -179,7 +191,7 @@ func main() {
 		imgui.SameLine()
 
 		imgui.PushItemWidth(avail * 0.1)
-		imgui.Text(fmt.Sprintf("%s/%s", formatDuration(p.Second), formatDuration(p.Duration)))
+		imgui.Text(fmt.Sprintf("%s/%s", formatDuration(float32(p.GetSecond())), formatDuration(p.Duration)))
 		imgui.PopItemWidth()
 
 		imgui.End()

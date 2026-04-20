@@ -45,7 +45,7 @@ func (ad *audiodecoder) load(stream *astiav.Stream) error {
 	if ad.ctx == nil {
 		return errors.New("audio decoder: codec context is nil")
 	}
-	ad.closer.Add(ad.ctx.Free)
+	// ad.closer.Add(ad.ctx.Free)
 
 	err := stream.CodecParameters().ToCodecContext(ad.ctx)
 	if err != nil {
@@ -75,23 +75,37 @@ func (ad *audiodecoder) decode(pkt *astiav.Packet, aBuffer *AudioBuffer) error {
 	ad.r.SetChannelLayout(astiav.ChannelLayoutStereo)
 	ad.r.SetSampleRate(44100)
 
-	if err := ad.ctx.SendPacket(pkt); err != nil {
+	err := ad.ctx.SendPacket(pkt)
+	if err != nil {
+		if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
+			log.Println(fmt.Errorf("audio decode: sending packet failed: %w", err))
+			return nil
+		}
 		log.Println(fmt.Errorf("audio decode: sending packet failed: %w", err))
+		return err
 	}
-	// ad.decodeloop(aBuffer)
+
 	for {
 		if stop := func() bool {
 			if err := ad.ctx.ReceiveFrame(ad.f); err != nil {
-				if !errors.Is(err, astiav.ErrEof) && !errors.Is(err, astiav.ErrEagain) {
+				if errors.Is(err, astiav.ErrEagain) {
+					log.Println(fmt.Errorf("audio decode eagain: %w", err))
+				} else if errors.Is(err, astiav.ErrEof) {
+					log.Println(fmt.Errorf("audio decode eof: %w", err))
+				} else {
 					log.Println(fmt.Errorf("audio decode: receiving frame failed: %w", err))
 				}
-				return false
+
+				return true
 			}
 
 			defer ad.f.Unref()
 			// defer ad.r.Unref()
 
-			if err := ad.src.ConvertFrame(ad.f, ad.r); err != nil {
+			if err := ad.src.ConvertFrame(
+				ad.f,
+				ad.r,
+			); err != nil {
 				log.Println(fmt.Errorf("audio decode: resampling decoded frame failed: %w", err))
 				return false
 			}

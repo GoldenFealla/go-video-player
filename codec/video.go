@@ -40,7 +40,7 @@ func (vd *videodecoder) load(stream *astiav.Stream) error {
 	if vd.ctx == nil {
 		return errors.New("video decoder: codec context is nil")
 	}
-	vd.closer.Add(vd.ctx.Free)
+	// vd.closer.Add(vd.ctx.Free)
 
 	err := stream.CodecParameters().ToCodecContext(vd.ctx)
 	if err != nil {
@@ -59,19 +59,33 @@ func (vd *videodecoder) load(stream *astiav.Stream) error {
 }
 
 func (vd *videodecoder) decode(pkt *astiav.Packet, vBuffer *VideoBuffer) error {
+	if vd.ctx == nil {
+		return errors.New("decoder context is nil")
+	}
+
 	f := astiav.AllocFrame()
 	defer f.Free()
 
-	if err := vd.ctx.SendPacket(pkt); err != nil {
+	err := vd.ctx.SendPacket(pkt)
+	if err != nil {
+		if errors.Is(err, astiav.ErrEof) || errors.Is(err, astiav.ErrEagain) {
+			return nil
+		}
 		log.Println(fmt.Errorf("video decode: sending packet failed: %w", err))
+		return err
 	}
 
 	for {
 		if stop := func() bool {
 			if err := vd.ctx.ReceiveFrame(f); err != nil {
-				if !errors.Is(err, astiav.ErrEof) && !errors.Is(err, astiav.ErrEagain) {
-					log.Println(fmt.Errorf("audio decode: receiving frame failed: %w", err))
+				if errors.Is(err, astiav.ErrEagain) {
+					// log.Println(fmt.Errorf("video decode eagain: %w", err))
+				} else if errors.Is(err, astiav.ErrEof) {
+					log.Println(fmt.Errorf("video decode eof: %w", err))
+				} else {
+					log.Println(fmt.Errorf("video decode: receiving frame failed: %w", err))
 				}
+
 				return true
 			}
 

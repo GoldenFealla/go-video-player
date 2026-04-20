@@ -12,14 +12,13 @@ type Player struct {
 	pb    *playback
 
 	Volume   float32
-	Second   float32
 	Duration float32
 }
 
 func NewPlayer() *Player {
 	return &Player{
 		codec:  codec.NewCodec(),
-		clock:  &clock{t: 0},
+		clock:  &clock{},
 		pb:     newplayback(20),
 		Volume: 0.5,
 	}
@@ -37,31 +36,51 @@ func (p *Player) Load(path string) error {
 	return nil
 }
 
-func (p *Player) Seek() {
-
+func (p *Player) Play() {
+	quit := make(chan struct{})
+	go p.codec.Parse(quit)
+	go p.Clock(quit)
 }
 
-func (p *Player) Play() error {
-	p.codec.Parse()
-	return nil
+func (p *Player) SeekSecond(second float32) {
+	if p.codec.Stopped {
+		p.Play()
+	}
+	p.codec.SeekSecond(second)
 }
 
-func (p *Player) Clock() {
+func (p *Player) Clock(quit chan struct{}) {
 	for {
-		data := p.codec.AudioBuffer.PeekBlocking()
-		p.pb.play(data.Samples, p.Volume)
-		p.clock.set(data.PTS)
-		p.Second = float32(p.clock.t)
-		p.codec.AudioBuffer.Pop()
+		select {
+		case <-quit:
+			return
+		default:
+			data := p.codec.AudioBuffer.Peek()
+			if data == nil {
+				continue
+			}
+
+			p.pb.play(data.Samples, p.Volume)
+			p.clock.set(data.PTS)
+			p.codec.AudioBuffer.Pop()
+		}
 	}
 }
 
 func (p *Player) LatestFrame() codec.VideoData {
-	f := p.codec.VideoBuffer.PeekBlocking()
+	if p.codec.Stopped {
+		return codec.VideoData{}
+	}
+	f := p.codec.VideoBuffer.Peek()
 
 	if f != nil {
 		master := p.clock.get()
 		diff := f.PTS - master
+
+		if diff > 0.5 {
+			p.codec.VideoBuffer.Pop()
+			return codec.VideoData{}
+		}
 
 		if diff > 0 {
 			return codec.VideoData{}
@@ -84,4 +103,8 @@ func (p *Player) LatestFrame() codec.VideoData {
 	}
 
 	return codec.VideoData{}
+}
+
+func (p *Player) GetSecond() float32 {
+	return float32(p.clock.get())
 }

@@ -31,6 +31,9 @@ type Codec struct {
 
 	AudioBuffer *AudioBuffer
 	VideoBuffer *VideoBuffer
+
+	timebase astiav.Rational
+	Stopped  bool
 }
 
 func NewCodec() *Codec {
@@ -60,6 +63,7 @@ func (c *Codec) Load(path string) (*VideoMetadata, *AudioMetadata, error) {
 		switch s.CodecParameters().MediaType() {
 		case astiav.MediaTypeVideo:
 			c.videoidx = s.Index()
+
 			err = c.video.load(s)
 
 			vm = &VideoMetadata{}
@@ -68,6 +72,7 @@ func (c *Codec) Load(path string) (*VideoMetadata, *AudioMetadata, error) {
 			vm.Timebase = s.TimeBase()
 		case astiav.MediaTypeAudio:
 			c.audioidx = s.Index()
+
 			err = c.audio.load(s)
 
 			am = &AudioMetadata{}
@@ -76,19 +81,30 @@ func (c *Codec) Load(path string) (*VideoMetadata, *AudioMetadata, error) {
 		}
 	}
 
+	c.timebase = vm.Timebase
+
 	return vm, am, err
 }
 
-func (c *Codec) Parse() {
+var video_decode_counter int = 0
+var audio_decode_counter int = 0
+
+func (c *Codec) Parse(quit chan struct{}) {
 	pkt := astiav.AllocPacket()
 	defer pkt.Free()
+
+	c.Stopped = false
 
 	for {
 		if stop := func() bool {
 			if err := c.ic.ReadFrame(pkt); err != nil {
 				if !errors.Is(err, astiav.ErrEof) {
 					log.Println(fmt.Errorf("demux: reading frame failed: %w", err))
+				} else {
+					log.Println("End of file")
 				}
+
+				return true
 			}
 
 			defer pkt.Unref()
@@ -96,8 +112,10 @@ func (c *Codec) Parse() {
 			switch idx := pkt.StreamIndex(); idx {
 			case c.videoidx:
 				c.video.decode(pkt, c.VideoBuffer)
+				video_decode_counter += 1
 			case c.audioidx:
 				c.audio.decode(pkt, c.AudioBuffer)
+				audio_decode_counter += 1
 			default:
 			}
 
@@ -106,12 +124,23 @@ func (c *Codec) Parse() {
 			break
 		}
 	}
+
+	c.Stopped = true
+	quit <- struct{}{}
 }
 
 func (c *Codec) Duration() int64 {
 	return c.ic.Duration()
 }
 
-func (c *Codec) Seek() {
-	c.ic.SeekFrame(c.videoidx, 0, astiav.NewSeekFlags(astiav.SeekFlagBackward))
+func (c *Codec) SeekSecond(second float32) {
+	c.AudioBuffer.Clear()
+	c.VideoBuffer.Clear()
+
+	timestamp := int64(second / float32(c.timebase.Float64()))
+	err := c.ic.SeekFrame(c.videoidx, timestamp, astiav.NewSeekFlags(astiav.SeekFlagBackward))
+
+	if err != nil {
+		log.Println(err)
+	}
 }

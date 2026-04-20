@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -163,10 +164,23 @@ func main() {
 			imgui.WindowFlagsNoCollapse
 
 		imgui.BeginV("Control", nil, flags)
+		avail := imgui.ContentRegionAvail().X
 
-		imgui.SliderFloatV("##volume", &p.Volume, 0, 1, "%.2f", 0)
+		imgui.PushItemWidth(avail * 0.7)
+		imgui.SliderFloat("##second", &p.Second, 0, p.Duration)
+		imgui.PopItemWidth()
+
 		imgui.SameLine()
-		imgui.Text(fmt.Sprintf("%.2fs", p.Second()))
+
+		imgui.PushItemWidth(avail * 0.2)
+		imgui.SliderFloat("##volume", &p.Volume, 0, 1)
+		imgui.PopItemWidth()
+
+		imgui.SameLine()
+
+		imgui.PushItemWidth(avail * 0.1)
+		imgui.Text(fmt.Sprintf("%s/%s", formatDuration(p.Second), formatDuration(p.Duration)))
+		imgui.PopItemWidth()
 
 		imgui.End()
 		imgui.Render()
@@ -182,4 +196,13 @@ func main() {
 		opengl3.RenderDrawData(imgui.CurrentDrawData())
 		window.GLSwap()
 	}
+}
+
+func formatDuration(sec float32) string {
+	totalSeconds := int(math.Round(float64(sec)))
+
+	m := totalSeconds / 60
+	s := totalSeconds % 60
+
+	return fmt.Sprintf("%02d:%02d", m, s)
 }

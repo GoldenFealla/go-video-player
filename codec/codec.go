@@ -107,3 +107,11 @@ func (c *Codec) Parse() {
 		}
 	}
 }
+
+func (c *Codec) Duration() int64 {
+	return c.ic.Duration()
+}
+
+func (c *Codec) Seek() {
+	c.ic.SeekFrame(c.videoidx, 0, astiav.NewSeekFlags(astiav.SeekFlagBackward))
+}

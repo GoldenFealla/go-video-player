@@ -2,14 +2,18 @@ package player
 
 import (
 	"GoldenFealla/go-video-player/codec"
-	"fmt"
+
+	"github.com/asticode/go-astiav"
 )
 
 type Player struct {
-	clock  *clock
-	codec  *codec.Codec
-	Volume float32
-	pb     *playback
+	clock *clock
+	codec *codec.Codec
+	pb    *playback
+
+	Volume   float32
+	Second   float32
+	Duration float32
 }
 
 func NewPlayer() *Player {
@@ -28,6 +32,8 @@ func (p *Player) Load(path string) error {
 	}
 
 	p.pb.load(am.Freq)
+	p.Duration = float32(p.codec.Duration()) / float32(astiav.TimeBase)
+
 	return nil
 }
 
@@ -40,15 +46,12 @@ func (p *Player) Play() error {
 	return nil
 }
 
-func (p *Player) Second() float64 {
-	return p.clock.t
-}
-
 func (p *Player) Clock() {
 	for {
 		data := p.codec.AudioBuffer.PeekBlocking()
 		p.pb.play(data.Samples, p.Volume)
 		p.clock.set(data.PTS)
+		p.Second = float32(p.clock.t)
 		p.codec.AudioBuffer.Pop()
 	}
 }
@@ -59,7 +62,6 @@ func (p *Player) LatestFrame() codec.VideoData {
 	if f != nil {
 		master := p.clock.get()
 		diff := f.PTS - master
-		fmt.Printf("\r%+.3f", diff)
 
 		if diff > 0 {
 			return codec.VideoData{}
